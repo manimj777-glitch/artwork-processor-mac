@@ -1,0 +1,103 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies
+      run: |
+        brew install pkg-config
+        
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas openpyxl xlsxwriter kivy[base] py2app
+        
+    - name: Create setup.py for py2app
+      run: |
+        cat > setup.py << 'EOF'
+        from setuptools import setup
+        import os
+        
+        APP = ['Artwork_Processor.py']  # Your main Python file
+        DATA_FILES = []
+        OPTIONS = {
+            'argv_emulation': True,
+            'iconfile': None,  # Add .icns file path if you have an icon
+            'plist': {
+                'CFBundleName': 'Artwork Release Data Processor',
+                'CFBundleDisplayName': 'Artwork Release Data Processor',
+                'CFBundleGetInfoString': "Artwork Release Data Processor",
+                'CFBundleIdentifier': 'com.yourcompany.artworkprocessor',
+                'CFBundleVersion': '1.0.0',
+                'CFBundleShortVersionString': '1.0.0',
+                'NSHumanReadableCopyright': 'Copyright © 2025',
+                'NSHighResolutionCapable': True,
+            },
+            'packages': ['pandas', 'numpy', 'openpyxl', 'xlsxwriter', 'kivy'],
+            'includes': ['pkg_resources.py2_warn'],
+            'excludes': ['tkinter'],
+            'resources': [],
+            'optimize': 2,
+        }
+        
+        setup(
+            app=APP,
+            data_files=DATA_FILES,
+            options={'py2app': OPTIONS},
+            setup_requires=['py2app'],
+        )
+        EOF
+    
+    - name: Build macOS app
+      run: |
+        python setup.py py2app
+        
+    - name: Create DMG (optional)
+      run: |
+        # Install create-dmg if you want a DMG installer
+        brew install create-dmg
+        create-dmg \
+          --volname "Artwork Release Data Processor" \
+          --window-pos 200 120 \
+          --window-size 600 300 \
+          --icon-size 100 \
+          --icon "Artwork Release Data Processor.app" 175 120 \
+          --hide-extension "Artwork Release Data Processor.app" \
+          --app-drop-link 425 120 \
+          "ArtworkProcessor-macOS.dmg" \
+          "dist/"
+    
+    - name: Upload macOS App
+      uses: actions/upload-artifact@v3
+      with:
+        name: artwork-processor-macos
+        path: |
+          dist/
+          *.dmg
+        retention-days: 30
+
+    - name: Create Release (if tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ArtworkProcessor-macOS.dmg
+          dist/Artwork Release Data Processor.app/**
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
